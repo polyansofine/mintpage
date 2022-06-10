@@ -203,7 +203,8 @@ function App(props) {
         <Grid container direction="row">
           {!account ? (
             <Button
-              variant="contained"
+              variant={data.btn_variant || "contained"}
+              color={data.btn_color || "primary"}
               onClick={connectWallet}
               style={{ fontFamily: data?.font, textTransform: data?.transform }}
             >
@@ -211,7 +212,8 @@ function App(props) {
             </Button>
           ) : (
             <Button
-              variant="contained"
+              variant={data.btn_variant || "contained"}
+              color={data.btn_color || "primary"}
               onClick={disconnect}
               style={{ fontFamily: data?.font, textTransform: data?.transform }}
             >
@@ -291,7 +293,8 @@ function App(props) {
             </Grid>
             <Grid container alignItems="center" justifyContent="center">
               <Button
-                variant="contained"
+                variant={data.btn_variant || "contained"}
+                color={data.btn_color || "primary"}
                 style={{
                   fontFamily: data?.font,
                   textTransform: data?.transform,
