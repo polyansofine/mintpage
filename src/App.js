@@ -14,6 +14,12 @@ import { useParams } from "react-router-dom";
 import { Container } from "@mui/system";
 import Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
+import { useConnectWallet } from "@web3-onboard/react";
+import { ethers } from "ethers";
+import * as defra from "./utils/defra";
+import { config } from "./config";
+import * as fuseActions from "./store/actions";
+import { useDispatch } from "react-redux";
 
 const MAINNET_RPC_URL = `https://mainnet.infura.io/v3/${process.env.REACT_APP_INFURA_KEY}`;
 const ROPSTEN_RPC_URL = `https://ropsten.infura.io/v3/${process.env.REACT_APP_INFURA_KEY}`;
@@ -79,44 +85,30 @@ function hexToRgb(hex) {
 }
 
 function App(props) {
-  const [_, setProvider] = useState();
+  //  const [{ wallet, connecting }, connect, disconnect] = useConnectWallet();
+  const [provider, setProvider] = useState();
   const [account, setAccount] = useState();
   const [error, setError] = useState("");
   const [chainId, setChainId] = useState();
   const [network, setNetwork] = useState();
   const [isLoading, setIsLoading] = useState(false);
-  const [value, setValue] = useState(0);
+  const [value, setValue] = useState(1);
   const [data, setData] = useState({});
   const [image, setImage] = useState();
   const [background, setBackground] = useState();
+  const [token, setToken] = useState();
+  const [name, setName] = useState();
+  const [price, setPrice] = useState();
+  const [balance, setBalance] = useState();
+  const [max, setMax] = useState();
+  const [total, setTotal] = useState();
+  const dispatch = useDispatch();
 
   const query = new URLSearchParams(props.location.search);
   const contract = query.get("contract");
-  // useEffect(() => {
-  //   const getData = async () => {
-  //     console.log("contract=", process.env.REACT_APP_URL);
-  //     const res = await fetch(
-  //       `${process.env.REACT_APP_URL}/v2/page/getPage/${contract}`
-  //     );
-  //     const response = await res.json();
-  //     if (response.page) {
-  //       setData(response.page);
-  //     }
 
-  //     const res1 = await fetch(
-  //       `${process.env.REACT_APP_URL}/v2/page/getPageImage/${contract}`
-  //     );
-  //     const response1 = await res1.blob();
-  //     console.log("reson1", response1);
-  //     setBackground(URL.createObjectURL(response1));
-  //   };
-  //   if (contract) {
-  //     getData();
-  //   }
-  // }, [contract]);
   useEffect(() => {
     const getData = async () => {
-      console.log("contract=", process.env.REACT_APP_URL);
       const res = await fetch(
         `${process.env.REACT_APP_URL}/v2/page/getPage/${contract}`
       );
@@ -131,11 +123,13 @@ function App(props) {
       const response1 = await res1.blob();
       console.log("reson1", response1);
       setBackground(URL.createObjectURL(response1));
+      await getContract(contract);
     };
     if (contract) {
       getData();
     }
   }, [contract]);
+
   useEffect(() => {
     async function getData() {
       const res = await fetch(
@@ -161,6 +155,153 @@ function App(props) {
       setError(error);
     }
   };
+  const getContract = async (contract) => {
+    console.log("contract==", contract);
+    if (!contract) {
+      console.error("missing contract id");
+      return;
+    }
+    const provider = new ethers.providers.Web3Provider(window.ethereum);
+
+    if (contract) {
+      const simplifiedAbi = [
+        "function abiHash() public view virtual returns (string memory)",
+        "function provenanceHash() public view virtual returns (string memory)",
+      ];
+
+      // let contractRes = await fetch(
+      //   config().apiHost + "/v2/contract/artifact",
+      //   { headers: JSON.parse(localStorage.getItem("ethAuth_" + user.address)) }
+      // );
+      // await contractRes.json();
+
+      // console.log(this.contractAddress, contract.abi);
+      const metadataGetter = new ethers.Contract(
+        contract,
+        simplifiedAbi,
+        provider.getSigner(0)
+      );
+
+      const abiHash = await metadataGetter.abiHash();
+
+      const abiObject = await defra.getIpfsHash(abiHash);
+      if (!abiObject || abiObject.error) {
+        throw new Error("failed to get abiObject");
+      }
+
+      const token = new ethers.Contract(
+        contract,
+        abiObject,
+        provider.getSigner(0)
+      );
+      setToken(token);
+
+      const exists = (await token.provider.getCode(token.address)) !== "0x";
+
+      if (!exists) {
+        console.error("does not exist", token.address);
+        dispatch(
+          fuseActions.showMessage({
+            message:
+              "Contract is not deployed on the current network check with the provider",
+            variant: "error",
+          })
+        );
+      } else {
+        await getNFT(token, contract);
+      }
+    }
+  };
+  const getNFT = async (token, contract) => {
+    const provider = new ethers.providers.Web3Provider(window.ethereum);
+
+    const name = await token.name();
+    setName(name);
+    const price = (await token.price()) / 1e18;
+    setPrice(price);
+    const balance = await provider.getBalance(contract);
+    console.log("balance==", balance);
+    setBalance(balance / 10 ** 18);
+    const ipfsRootHash = (await token.provenanceHash()).toString();
+    const totalSupply = (await token.totalSupply()).toString();
+    setTotal(totalSupply);
+    const airdropAvailable = (await token._airdrop_available()).toString();
+    const maxSupply = (await token.max_supply()).toString();
+    setMax(maxSupply);
+    const mintStart = (await token._mint_start()).toString();
+    const presale_status = await token._available_presale();
+    const public_status = await token._available_public_mint();
+    // setPresale(presale_status);
+    // setPublicMint(public_status);
+    // let openseaURL = "";
+
+    // if (window.ethereum.networkVersion !== "31337") {
+    //   try {
+    //     const res = await fetch(
+    //       config().openseaApi + "/api/v1/asset_contract/" + contract.address
+    //     );
+    //     const response = await res.json();
+    //     console.log("rescollection==", response);
+    //     openseaURL = config().openseaHost + "/collection/" + response.name;
+    //     setOpensea(openseaURL);
+    //   } catch (e) {}
+    // }
+    // const location = window.location.href.split("/");
+    // // console.log("contractpagelocation==", location[0] + "//" + location[2]);
+    // const locationUrl = location[0] + "//" + location[2];
+    // setForm({
+    //   ...form,
+    //   contractId: contract.id,
+    //   name,
+    //   price,
+    //   description: collection.description,
+    //   mint_start: mintStart,
+    //   max_supply: maxSupply,
+    //   provenance: ipfsRootHash,
+    //   airdropAvailable,
+    //   openseaURL,
+    //   purchaseURL: presale_status
+    //     ? locationUrl + "/presale_user/" + contract.address
+    //     : locationUrl + "/public_mint/" + contract.address,
+    //   airdropRedeemURL:
+    //     config().storeFrontHost +
+    //     "?contract=" +
+    //     contract.address +
+    //     "&redeem=true",
+    //   contractAddress: contract.address,
+    //   totalSupply,
+    //   balance: parseInt(balance._hex),
+    // });
+    // setLoading(false);
+  };
+  const handleMint = async () => {
+    try {
+      if (token) {
+        await token.purchase(value, {
+          value: ethers.utils.parseEther(`${price * value}`),
+        });
+        await getNFT(token, contract);
+        dispatch(
+          fuseActions.showMessage({
+            message: "Success mint",
+            variant: "success",
+          })
+        );
+      }
+    } catch (error) {
+      dispatch(
+        fuseActions.showMessage({
+          message: error.message ? error.message : error.data.message,
+          variant: "error",
+          anchorOrigin: {
+            vertical: "bottom",
+            horizontal: "left",
+          },
+        })
+      );
+      console.log("error=", error);
+    }
+  };
 
   const switchNetwork = async () => {
     await onboard.setChain({ chainId: toHex(network) });
@@ -171,7 +312,7 @@ function App(props) {
     setNetwork(Number(id));
   };
 
-  const disconnect = async () => {
+  const disconnects = async () => {
     console.log("hello");
     const [primaryWallet] = await onboard.state.get().wallets;
     // if (!primaryWallet) return;
@@ -214,7 +355,7 @@ function App(props) {
             <Button
               variant={data.btn_variant || "contained"}
               color={data.btn_color || "primary"}
-              onClick={disconnect}
+              onClick={disconnects}
               style={{ fontFamily: data?.font, textTransform: data?.transform }}
             >
               Disconnect
@@ -250,7 +391,37 @@ function App(props) {
                   textTransform: data?.transform,
                 }}
               >
-                1000/5555
+                {total}/{max}
+              </Typography>
+            </Grid>
+            <Grid container justifyContent="center">
+              <Typography
+                style={{
+                  fontFamily: data?.font,
+                  textTransform: data?.transform,
+                }}
+              >
+                {name}
+              </Typography>
+            </Grid>
+            {/* <Grid container justifyContent="center">
+              <Typography
+                style={{
+                  fontFamily: data?.font,
+                  textTransform: data?.transform,
+                }}
+              >
+                {balance}
+              </Typography>
+            </Grid> */}
+            <Grid container justifyContent="center">
+              <Typography
+                style={{
+                  fontFamily: data?.font,
+                  textTransform: data?.transform,
+                }}
+              >
+                {price * value}eth
               </Typography>
             </Grid>
             <Grid
@@ -299,6 +470,7 @@ function App(props) {
                   fontFamily: data?.font,
                   textTransform: data?.transform,
                 }}
+                onClick={handleMint}
               >
                 Mint
               </Button>
